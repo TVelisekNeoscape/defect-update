@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Defect rectification update</title>
+<style>
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{margin:0;font-family:Helvetica,Arial,sans-serif;font-size:10pt;line-height:1.4;color:#111;background:#f4f4f2}
+  .wrap{max-width:560px;margin:0 auto;padding:0 0 40px}
+  header{background:#111;color:#fff;padding:14px 16px;border-bottom:6px solid #f5c800}
+  header h1{margin:0;font-size:10pt;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+  header p{margin:2px 0 0;color:#ccc}
+  main{padding:16px}
+  .card{background:#fff;border:1px solid #d6d6d2;padding:12px 14px;margin-bottom:14px}
+  .card h2{margin:0 0 6px;font-size:10pt;font-weight:700;text-transform:uppercase}
+  .meta{display:grid;grid-template-columns:90px 1fr;gap:3px 10px;margin:0}
+  .meta dt{color:#666}
+  .meta dd{margin:0;font-weight:700;word-break:break-word}
+  fieldset{border:0;margin:0;padding:0}
+  legend,.lg{padding:0;margin:0 0 6px;font-weight:700;text-transform:uppercase}
+  .opt{display:flex;align-items:flex-start;gap:10px;padding:12px;border:2px solid #d6d6d2;margin-bottom:8px;background:#fff;cursor:pointer}
+  .opt input{margin:2px 0 0;width:20px;height:20px;flex:none;accent-color:#111}
+  .opt.on{border-color:#111;background:#fff8d6}
+  .opt b{display:block}
+  .opt span{color:#555}
+  .btn{font-family:inherit;font-size:10pt;font-weight:700;border:2px solid #111;background:#f5c800;color:#111;padding:14px 16px;min-height:48px;cursor:pointer;width:100%;text-transform:uppercase;letter-spacing:.03em}
+  .btn.alt{background:#fff}
+  .btn:disabled{opacity:.45;cursor:default}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .hide{display:none !important}
+  input[type=file]{position:absolute;left:-9999px;width:1px;height:1px;opacity:0}
+  #preview{display:block;max-width:100%;max-height:340px;margin:10px auto 0;border:1px solid #ccc}
+  #pname{margin:6px 0 0;color:#555;word-break:break-all}
+  textarea{width:100%;min-height:110px;font-family:inherit;font-size:16px;padding:10px;border:2px solid #d6d6d2;resize:vertical}
+  textarea:focus{outline:none;border-color:#111}
+  .count{text-align:right;color:#777;margin-top:2px}
+  .msg{padding:12px 14px;margin-bottom:14px;border:2px solid #111}
+  .msg.err{background:#fde8e8;border-color:#b00020;color:#6d0016}
+  .msg.ok{background:#e7f5ea;border-color:#0a6b2a;color:#064d1e}
+  .msg b{display:block;margin-bottom:2px}
+  .small{color:#666;margin-top:10px}
+  .spin{display:inline-block;width:12px;height:12px;border:2px solid #111;border-right-color:transparent;border-radius:50%;animation:s .7s linear infinite;vertical-align:-2px;margin-right:6px}
+  @keyframes s{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Defect rectification update</h1>
+    <p id="proj"></p>
+  </header>
+  <main>
+    <div id="bad" class="msg err hide">
+      <b>This link is incomplete.</b>
+      Please open the link from your defect report again. If the problem continues, contact the person who sent you the report.
+    </div>
+
+    <div id="done" class="msg ok hide">
+      <b>Update received.</b>
+      Thank you. Your photo and note have been sent. You can close this page.
+      <p style="margin:10px 0 0"><button class="btn alt" id="again" type="button">Send another update for this item</button></p>
+    </div>
+
+    <form id="form" class="hide" novalidate>
+      <div class="card">
+        <h2>Defect</h2>
+        <dl class="meta">
+          <dt>Reference</dt><dd id="d-ref"></dd>
+          <dt id="d-title-l">Item</dt><dd id="d-title"></dd>
+          <dt id="d-loc-l">Location</dt><dd id="d-loc"></dd>
+        </dl>
+      </div>
+
+      <div class="card">
+        <fieldset>
+          <legend>1. What is the status?</legend>
+          <label class="opt" data-v="rectified"><input type="radio" name="status" value="rectified"><div><b>Rectified</b><span>Work is complete and ready to be inspected.</span></div></label>
+          <label class="opt" data-v="in_progress"><input type="radio" name="status" value="in_progress"><div><b>Works in progress</b><span>Work has started but is not finished.</span></div></label>
+          <label class="opt" data-v="cannot_complete"><input type="radio" name="status" value="cannot_complete"><div><b>Cannot complete</b><span>Something is preventing the work. Explain in the note.</span></div></label>
+        </fieldset>
+      </div>
+
+      <div class="card">
+        <div class="lg">2. Add a photo</div>
+        <div class="row">
+          <button type="button" class="btn" id="btnTake">Take photo</button>
+          <button type="button" class="btn alt" id="btnPick">Choose from library</button>
+        </div>
+        <input type="file" id="inTake" accept="image/*" capture="environment">
+        <input type="file" id="inPick" accept="image/*">
+        <img id="preview" class="hide" alt="Selected photo preview">
+        <p id="pname" class="hide"></p>
+        <p class="small" id="photoHelp">One photo per update. It is shrunk automatically before sending.</p>
+      </div>
+
+      <div class="card">
+        <div class="lg">3. Add a note</div>
+        <textarea id="note" maxlength="2000" placeholder="Describe what was done, or what is stopping the work."></textarea>
+        <div class="count"><span id="cnt">0</span> / 2000</div>
+      </div>
+
+      <div id="err" class="msg err hide" role="alert"></div>
+      <button type="submit" class="btn" id="send" disabled>Send update</button>
+      <p class="small">Your photo and note go to the project team. Nothing else on your device is read.</p>
+    </form>
+  </main>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  // The only address this page sends to. Replace if the flow is ever rebuilt.
+  var FLOW_URL = "https://defaultf65a90545a5e48259d803f8339ac19.5b.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/21/workflows/d9d5ccf70ca44a9784e540ff9590195f/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=yjjuH1PqBcVdSZDjFgAalJxUmOS7Fk8666dY79iIktc";
+  var MAX_SIDE = 1600, MAX_B64 = 3600000;
+
+  function $(id){ return document.getElementById(id); }
+
+  // Details arrive in the part of the link after #, which browsers never send to the host.
+  var p = new URLSearchParams((location.hash || "").replace(/^#/, ""));
+  var code = (p.get("c") || "").trim();
+  var ref = (p.get("r") || "").trim();
+  var title = (p.get("t") || "").trim();
+  var loc = (p.get("l") || "").trim();
+  var proj = (p.get("p") || "").trim();
+
+  if (code.length < 8 || code.length > 64 || !ref || ref.length > 40) {
+    $("bad").classList.remove("hide");
+    return;
+  }
+  $("form").classList.remove("hide");
+  $("proj").textContent = proj;
+  if (!proj) $("proj").classList.add("hide");
+  $("d-ref").textContent = ref;
+  if (title) $("d-title").textContent = title; else { $("d-title-l").classList.add("hide"); $("d-title").classList.add("hide"); }
+  if (loc) $("d-loc").textContent = loc; else { $("d-loc-l").classList.add("hide"); $("d-loc").classList.add("hide"); }
+
+  var status = "", photoB64 = "", busy = false;
+
+  function setErr(m){ var e = $("err"); if (m) { e.textContent = m; e.classList.remove("hide"); } else { e.classList.add("hide"); } }
+  function refresh(){
+    var needNote = status === "cannot_complete";
+    var ok = !!status && !!photoB64 && !busy && (!needNote || $("note").value.trim().length > 0);
+    $("send").disabled = !ok;
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll('input[name=status]'), function(r){
+    r.addEventListener("change", function(){
+      status = r.value;
+      Array.prototype.forEach.call(document.querySelectorAll(".opt"), function(o){ o.classList.toggle("on", o.getAttribute("data-v") === status); });
+      setErr(""); refresh();
+    });
+  });
+
+  $("note").addEventListener("input", function(){ $("cnt").textContent = $("note").value.length; refresh(); });
+
+  $("btnTake").onclick = function(){ $("inTake").click(); };
+  $("btnPick").onclick = function(){ $("inPick").click(); };
+
+  function loadImage(file){
+    return new Promise(function(res, rej){
+      var u = URL.createObjectURL(file), im = new Image();
+      im.onload = function(){ URL.revokeObjectURL(u); res(im); };
+      im.onerror = function(){ URL.revokeObjectURL(u); rej(new Error("decode")); };
+      im.src = u;
+    });
+  }
+  async function toJpegBase64(file){
+    var src;
+    try { src = await createImageBitmap(file, {imageOrientation: "from-image"}); }
+    catch (e) { src = await loadImage(file); }
+    var w = src.width || src.naturalWidth, h = src.height || src.naturalHeight;
+    var s = Math.min(1, MAX_SIDE / Math.max(w, h));
+    var cw = Math.max(1, Math.round(w * s)), ch = Math.max(1, Math.round(h * s));
+    var c = document.createElement("canvas"); c.width = cw; c.height = ch;
+    var g = c.getContext("2d");
+    g.fillStyle = "#fff"; g.fillRect(0, 0, cw, ch);
+    g.drawImage(src, 0, 0, cw, ch);
+    var q = 0.82, out = "";
+    for (var i = 0; i < 6; i++) {
+      out = c.toDataURL("image/jpeg", q).split(",")[1] || "";
+      if (out.length <= MAX_B64) break;
+      q -= 0.1;
+    }
+    if (!out || out.length > MAX_B64) throw new Error("size");
+    return {b64: out, url: "data:image/jpeg;base64," + out};
+  }
+
+  async function onFile(ev){
+    var f = ev.target.files && ev.target.files[0];
+    ev.target.value = "";
+    if (!f) return;
+    setErr("");
+    $("photoHelp").textContent = "Preparing photo...";
+    try {
+      var r = await toJpegBase64(f);
+      photoB64 = r.b64;
+      $("preview").src = r.url; $("preview").classList.remove("hide");
+      $("pname").textContent = "Photo ready (" + Math.round(r.b64.length * 0.75 / 1024) + " KB after shrinking)."; $("pname").classList.remove("hide");
+      $("photoHelp").textContent = "To change it, take or choose another photo.";
+    } catch (e) {
+      photoB64 = "";
+      $("preview").classList.add("hide"); $("pname").classList.add("hide");
+      $("photoHelp").textContent = "One photo per update. It is shrunk automatically before sending.";
+      setErr("That photo could not be read. Please try a different photo.");
+    }
+    refresh();
+  }
+  $("inTake").addEventListener("change", onFile);
+  $("inPick").addEventListener("change", onFile);
+
+  $("form").addEventListener("submit", async function(ev){
+    ev.preventDefault();
+    if ($("send").disabled || busy) return;
+    busy = true; setErr("");
+    $("send").innerHTML = '<span class="spin"></span>Sending';
+    refresh();
+    var body = {code: code, defectRef: ref, status: status, description: $("note").value.trim(), photoBase64: photoB64};
+    try {
+      var ctl = new AbortController(), to = setTimeout(function(){ ctl.abort(); }, 60000);
+      var r = await fetch(FLOW_URL, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body), signal: ctl.signal});
+      clearTimeout(to);
+      if (r.status === 200) {
+        $("form").classList.add("hide"); $("done").classList.remove("hide");
+        window.scrollTo(0, 0);
+      } else if (r.status === 400) {
+        setErr("That update could not be accepted. Check that you chose a status and added a photo, then try again. If it keeps failing, contact the person who sent you the report.");
+      } else {
+        setErr("The update could not be sent right now. Nothing has been lost on this page. Please wait a moment and press Send update again.");
+      }
+    } catch (e) {
+      setErr("The update could not be sent. Check your connection and press Send update again.");
+    }
+    busy = false;
+    $("send").textContent = "Send update";
+    refresh();
+  });
+
+  $("again").onclick = function(){
+    photoB64 = ""; status = "";
+    $("note").value = ""; $("cnt").textContent = "0";
+    Array.prototype.forEach.call(document.querySelectorAll('input[name=status]'), function(r){ r.checked = false; });
+    Array.prototype.forEach.call(document.querySelectorAll(".opt"), function(o){ o.classList.remove("on"); });
+    $("preview").classList.add("hide"); $("pname").classList.add("hide");
+    $("photoHelp").textContent = "One photo per update. It is shrunk automatically before sending.";
+    $("done").classList.add("hide"); $("form").classList.remove("hide");
+    refresh();
+  };
+})();
+</script>
+</body>
+</html>
