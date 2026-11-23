@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex, nofollow">
+<title>Defect photo</title>
+<style>
+  *{box-sizing:border-box}
+  [hidden]{display:none!important}
+  html,body{margin:0;height:100%;background:#15181b;color:#f2f4f5;font-family:Helvetica,Arial,sans-serif;font-size:14px;-webkit-text-size-adjust:100%}
+  body{display:flex;flex-direction:column}
+  header{display:flex;align-items:center;gap:12px;padding:10px 14px;padding-top:max(10px,env(safe-area-inset-top));background:#1f2428;border-bottom:1px solid #343b41}
+  header h1{margin:0;font-size:14px;font-weight:700;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  header a,header button{font:inherit;color:#fff;background:#2f6db5;border:0;border-radius:6px;padding:8px 12px;text-decoration:none;cursor:pointer;min-height:36px}
+  header button.sec{background:#3a4249}
+  #stage{position:relative;flex:1;overflow:hidden;touch-action:none;cursor:grab}
+  #stage.drag{cursor:grabbing}
+  #img{position:absolute;left:0;top:0;transform-origin:0 0;max-width:none;user-select:none;-webkit-user-drag:none}
+  #msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;line-height:1.5}
+  #msg p{max-width:420px;margin:0}
+  footer{padding:8px 14px;padding-bottom:max(8px,env(safe-area-inset-bottom));font-size:12px;color:#a9b2b9;background:#1f2428;border-top:1px solid #343b41}
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">Defect photo</h1>
+  <button type="button" class="sec" id="fit" hidden>Fit</button>
+  <a id="save" hidden>Save photo</a>
+</header>
+<div id="stage"><img id="img" alt="" hidden><div id="msg"><p>Opening photo…</p></div></div>
+<footer>Pinch or scroll to zoom, drag to move. This is the 1600 pixel version held in the defect register.</footer>
+<script>
+(function(){
+  "use strict";
+  var $ = function(id){ return document.getElementById(id); };
+  var stage = $("stage"), img = $("img"), msg = $("msg");
+  function say(t){ msg.hidden = false; msg.firstElementChild.textContent = t; img.hidden = true; }
+  function b64uToBytes(s){ s = s.replace(/-/g, "+").replace(/_/g, "/"); while (s.length % 4) s += "="; var b = atob(s), o = new Uint8Array(b.length); for (var i = 0; i < b.length; i++) o[i] = b.charCodeAt(i); return o; }
+
+  window.addEventListener("hashchange", function(){ location.reload(); });
+  var h = new URLSearchParams(location.hash.slice(1));
+  var id = h.get("i") || "", key = h.get("k") || "", label = h.get("t") || "";
+  if (label) { $("title").textContent = label; document.title = label + " - defect photo"; }
+  if (!/^[0-9a-f]{32}$/.test(id) || !/^[A-Za-z0-9_-]{43}$/.test(key)) { say("This photo link is incomplete. Open it again from the report."); return; }
+  if (!window.crypto || !crypto.subtle) { say("This browser cannot open protected photos. Open the link in a current browser over a secure connection."); return; }
+
+  var scale = 1, tx = 0, ty = 0, nw = 0, nh = 0, minS = 1;
+  function apply(){ img.style.transform = "translate(" + tx + "px," + ty + "px) scale(" + scale + ")"; }
+  function clamp(){
+    var vw = stage.clientWidth, vh = stage.clientHeight, w = nw * scale, h2 = nh * scale;
+    tx = w <= vw ? (vw - w) / 2 : Math.min(0, Math.max(vw - w, tx));
+    ty = h2 <= vh ? (vh - h2) / 2 : Math.min(0, Math.max(vh - h2, ty));
+  }
+  function fit(){ var vw = stage.clientWidth, vh = stage.clientHeight; minS = Math.min(vw / nw, vh / nh); scale = minS; clamp(); apply(); }
+  function zoomAt(cx, cy, f){
+    var ns = Math.min(minS * 8, Math.max(minS, scale * f)); f = ns / scale;
+    tx = cx - (cx - tx) * f; ty = cy - (cy - ty) * f; scale = ns; clamp(); apply();
+  }
+  stage.addEventListener("wheel", function(e){ e.preventDefault(); var r = stage.getBoundingClientRect(); zoomAt(e.clientX - r.left, e.clientY - r.top, Math.exp(-e.deltaY * 0.0015)); }, {passive:false});
+  var pts = {}, lastD = 0, lastC = null;
+  function pcount(){ return Object.keys(pts).length; }
+  stage.addEventListener("pointerdown", function(e){ if (img.hidden) return; stage.setPointerCapture(e.pointerId); pts[e.pointerId] = {x:e.clientX, y:e.clientY}; stage.classList.add("drag"); lastD = 0; lastC = null; });
+  stage.addEventListener("pointermove", function(e){
+    if (!pts[e.pointerId]) return;
+    var prev = pts[e.pointerId]; pts[e.pointerId] = {x:e.clientX, y:e.clientY};
+    var ids = Object.keys(pts);
+    if (ids.length === 1) { tx += e.clientX - prev.x; ty += e.clientY - prev.y; clamp(); apply(); }
+    else if (ids.length === 2) {
+      var a = pts[ids[0]], b = pts[ids[1]], d = Math.hypot(a.x - b.x, a.y - b.y), c = {x:(a.x + b.x) / 2, y:(a.y + b.y) / 2}, r = stage.getBoundingClientRect();
+      if (lastD) zoomAt(c.x - r.left, c.y - r.top, d / lastD);
+      if (lastC) { tx += c.x - lastC.x; ty += c.y - lastC.y; clamp(); apply(); }
+      lastD = d; lastC = c;
+    }
+  });
+  function up(e){ delete pts[e.pointerId]; if (!pcount()) stage.classList.remove("drag"); lastD = 0; lastC = null; }
+  stage.addEventListener("pointerup", up); stage.addEventListener("pointercancel", up);
+  stage.addEventListener("dblclick", function(e){ var r = stage.getBoundingClientRect(); if (scale > minS * 1.01) fit(); else zoomAt(e.clientX - r.left, e.clientY - r.top, 3); });
+  $("fit").addEventListener("click", fit);
+  window.addEventListener("resize", function(){ if (!img.hidden) { var wasFit = Math.abs(scale - minS) < 1e-6; var old = minS; minS = Math.min(stage.clientWidth / nw, stage.clientHeight / nh); if (wasFit) scale = minS; else scale = Math.max(minS, scale); clamp(); apply(); } });
+
+  var url = new URL("p/" + id + ".bin", location.href).href;
+  fetch(url, {cache:"no-cache", referrerPolicy:"no-referrer"}).then(function(r){
+    if (r.status === 404) throw new Error("missing");
+    if (!r.ok) throw new Error("http");
+    return r.arrayBuffer();
+  }).then(function(buf){
+    var u8 = new Uint8Array(buf); if (u8.length < 29) throw new Error("bad");
+    return crypto.subtle.importKey("raw", b64uToBytes(key), "AES-GCM", false, ["decrypt"]).then(function(k){
+      return crypto.subtle.decrypt({name:"AES-GCM", iv:u8.slice(0, 12)}, k, u8.slice(12));
+    });
+  }).then(function(plain){
+    var blob = new Blob([plain], {type:"image/jpeg"}), obj = URL.createObjectURL(blob);
+    img.onload = function(){
+      nw = img.naturalWidth; nh = img.naturalHeight; img.style.width = nw + "px"; img.style.height = nh + "px";
+      msg.hidden = true; img.hidden = false; $("fit").hidden = false;
+      var a = $("save"); a.href = obj; a.download = (label || "defect photo").replace(/[^\w\- ]+/g, "").trim().replace(/\s+/g, "-") + ".jpg"; a.hidden = false;
+      fit();
+    };
+    img.onerror = function(){ say("The photo could not be displayed."); };
+    img.src = obj;
+  }).catch(function(e){
+    if (e && e.message === "missing") say("This photo has not been uploaded to the site yet. Try again in a minute or two. GitHub can take a short while to publish new files.");
+    else if (e && e.name === "OperationError") say("This link does not match the stored photo. Open it again from the latest report.");
+    else say("The photo could not be opened. Check your connection and try again.");
+  });
+})();
+</script>
+</body>
+</html>

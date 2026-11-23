@@ -43,6 +43,13 @@
   .msg.ok{background:#e7f5ea;border-color:#0a6b2a;color:#064d1e}
   .msg b{display:block;margin-bottom:2px}
   .small{color:#666;margin-top:10px}
+  input[type=text]{width:100%;font-family:inherit;font-size:16px;padding:12px 10px;border:2px solid #d6d6d2;border-radius:0;background:#fff;color:#111}
+  input[type=text]:focus{outline:none;border-color:#111}
+  .sig{display:block;width:100%;aspect-ratio:10/3;background:#fff;border:2px solid #d6d6d2;touch-action:none;cursor:crosshair;margin-top:10px}
+  .sig.on{border-color:#111}
+  .sigbar{display:flex;justify-content:space-between;align-items:center;margin-top:6px;color:#666}
+  .link{font-family:inherit;font-size:10pt;font-weight:700;background:none;border:0;color:#111;text-decoration:underline;padding:10px 0;cursor:pointer;min-height:44px}
+  .msg .btn{margin-top:10px}
   .spin{display:inline-block;width:12px;height:12px;border:2px solid #111;border-right-color:transparent;border-radius:50%;animation:s .7s linear infinite;vertical-align:-2px;margin-right:6px}
   @keyframes s{to{transform:rotate(360deg)}}
 </style>
@@ -61,10 +68,13 @@
 
     <div id="done" class="msg ok hide">
       <b>Update received.</b>
-      Thank you. Your photo and note have been sent. You can close this page.
-      <p style="margin:10px 0 0"><button class="btn alt" id="again" type="button">Send another update for this item</button></p>
+      <span id="doneTxt">Thank you. Your photo, note and signature have been sent.</span>
+      <button class="btn" id="back" type="button">Back to the report</button>
+      <p id="backHelp" class="small hide">Close this page, or switch back to your report, to return to it.</p>
+      <button class="btn alt" id="again" type="button">Send another update for this item</button>
     </div>
 
+    <div id="prev" class="msg ok hide"></div>
     <form id="form" class="hide" novalidate>
       <div class="card">
         <h2>Defect</h2>
@@ -103,9 +113,22 @@
         <div class="count"><span id="cnt">0</span> / 2000</div>
       </div>
 
+      <div class="card">
+        <div class="lg">4. Your company, name and signature</div>
+        <label for="co" class="small" style="display:block;margin:0 0 4px">Company</label>
+        <input type="text" id="co" maxlength="60" list="coList" autocomplete="off" autocapitalize="words" placeholder="Choose from the list or type your company name">
+        <datalist id="coList"></datalist>
+        <div class="small" id="coHelp" style="margin:4px 0 14px">If your company is not listed, type it. It will then appear in the list for the next person.</div>
+        <label for="nm" class="small" style="display:block;margin:0 0 4px">Full name</label>
+        <input type="text" id="nm" maxlength="80" autocomplete="name" placeholder="First and last name">
+        <div class="small" style="margin:14px 0 0">Sign below with your finger or mouse</div>
+        <canvas id="sig" class="sig" width="800" height="240" aria-label="Signature box"></canvas>
+        <div class="sigbar"><span id="sigHelp">Not signed yet.</span><button type="button" class="link" id="sigClear">Clear</button></div>
+      </div>
+
       <div id="err" class="msg err hide" role="alert"></div>
       <button type="submit" class="btn" id="send" disabled>Send update</button>
-      <p class="small">Your photo and note go to the project team. Nothing else on your device is read.</p>
+      <p class="small">Your photo, note, name and signature go to the project team. Nothing else on your device is read.</p>
     </form>
   </main>
 </div>
@@ -115,6 +138,7 @@
   "use strict";
   // The only address this page sends to. Replace if the flow is ever rebuilt.
   var FLOW_URL = "https://defaultf65a90545a5e48259d803f8339ac19.5b.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/21/workflows/d9d5ccf70ca44a9784e540ff9590195f/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=yjjuH1PqBcVdSZDjFgAalJxUmOS7Fk8666dY79iIktc";
+  var LOOKUP_URL = "https://defaultf65a90545a5e48259d803f8339ac19.5b.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/12/workflows/c4f40b2359154ecab8eb9c339e124095/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=flg-zVyidkWDCkQFPLNchzcrfA49dDyfNmkxCzyANcg";
   var MAX_SIDE = 1600, MAX_B64 = 3600000;
 
   function $(id){ return document.getElementById(id); }
@@ -126,6 +150,8 @@
   var title = (p.get("t") || "").trim();
   var loc = (p.get("l") || "").trim();
   var proj = (p.get("p") || "").trim();
+  // Project folder in the repository. Characters that cannot be used in a folder name are removed here and again on the server.
+  var folder = (p.get("k") || "").replace(/[\/\\*"':<>?|#%~.]/g, "").replace(/\s+/g, " ").trim().slice(0, 60).trim();
 
   if (code.length < 8 || code.length > 64 || !ref || ref.length > 40) {
     $("bad").classList.remove("hide");
@@ -138,12 +164,57 @@
   if (title) $("d-title").textContent = title; else { $("d-title-l").classList.add("hide"); $("d-title").classList.add("hide"); }
   if (loc) $("d-loc").textContent = loc; else { $("d-loc-l").classList.add("hide"); $("d-loc").classList.add("hide"); }
 
-  var status = "", photoB64 = "", busy = false;
+  var status = "", photoB64 = "", busy = false, sigInk = 0, drawing = false, lx = 0, ly = 0;
+  var MAX_SIG_B64 = 200000;
+  var sigC = $("sig"), sg = sigC.getContext("2d");
+  function sigReset(){ sg.fillStyle = "#fff"; sg.fillRect(0, 0, sigC.width, sigC.height); sg.strokeStyle = "#111"; sg.lineWidth = 4; sg.lineCap = "round"; sg.lineJoin = "round"; sigInk = 0; $("sigHelp").textContent = "Not signed yet."; sigC.classList.remove("on"); }
+  sigReset();
+  function sigPos(e){ var r = sigC.getBoundingClientRect(); return [(e.clientX - r.left) * sigC.width / r.width, (e.clientY - r.top) * sigC.height / r.height]; }
+  sigC.addEventListener("pointerdown", function(e){
+    e.preventDefault(); try { sigC.setPointerCapture(e.pointerId); } catch (x) {}
+    drawing = true; var p = sigPos(e); lx = p[0]; ly = p[1]; sigC.classList.add("on");
+    sg.beginPath(); sg.arc(lx, ly, 1.6, 0, 6.2832); sg.fillStyle = "#111"; sg.fill();
+  });
+  sigC.addEventListener("pointermove", function(e){
+    if (!drawing) return; e.preventDefault();
+    var p = sigPos(e); sg.beginPath(); sg.moveTo(lx, ly); sg.lineTo(p[0], p[1]); sg.stroke();
+    sigInk += Math.abs(p[0] - lx) + Math.abs(p[1] - ly); lx = p[0]; ly = p[1];
+    if (sigInk > 120) $("sigHelp").textContent = "Signature captured.";
+  });
+  function sigEnd(e){ if (!drawing) return; drawing = false; refresh(); }
+  sigC.addEventListener("pointerup", sigEnd); sigC.addEventListener("pointercancel", sigEnd); sigC.addEventListener("pointerleave", sigEnd);
+  $("sigClear").onclick = function(){ sigReset(); refresh(); };
+  $("nm").addEventListener("input", function(){ refresh(); });
+  // Company names become part of a stored file name, so characters that cannot be used there are removed.
+  function cleanCo(v){ return String(v || "").replace(/[\/\\*"':<>?|#%_~]/g, "").replace(/\s+/g, " "); }
+  function coValue(){ return cleanCo($("co").value).trim().replace(/\.+$/, "").trim(); }
+  function coOk(){ var v = coValue(); return v.length >= 2 && v.length <= 60; }
+  $("co").addEventListener("input", function(){
+    var raw = $("co").value, c = cleanCo(raw);
+    if (raw !== c) { $("co").value = c; $("coHelp").textContent = "These characters cannot be used in a company name and were removed: / \\ * \" : < > ? | # % _ ~"; }
+    refresh();
+  });
+  var coKnown = [];
+  function addCompanies(list){
+    list.forEach(function(n){
+      n = cleanCo(n).trim();
+      if (n.length < 2 || n.length > 60) return;
+      var k = n.toLowerCase();
+      for (var i = 0; i < coKnown.length; i++) if (coKnown[i].toLowerCase() === k) { if ((n.match(/[A-Z]/g) || []).length > (coKnown[i].match(/[A-Z]/g) || []).length) coKnown[i] = n; return; }
+      coKnown.push(n);
+    });
+    coKnown.sort(function(a, b){ return a.toLowerCase() < b.toLowerCase() ? -1 : 1; });
+    var dl = $("coList"); dl.innerHTML = "";
+    coKnown.forEach(function(n){ var o = document.createElement("option"); o.value = n; dl.appendChild(o); });
+  }
+  try { addCompanies(JSON.parse(localStorage.getItem("du:companies") || "[]")); var lastCo = localStorage.getItem("du:lastCompany"); if (lastCo) $("co").value = cleanCo(lastCo); } catch (e) {}
+  function signed(){ return sigInk > 120; }
+  function sigB64(){ return sigC.toDataURL("image/png").split(",")[1] || ""; }
 
   function setErr(m){ var e = $("err"); if (m) { e.textContent = m; e.classList.remove("hide"); } else { e.classList.add("hide"); } }
   function refresh(){
     var needNote = status === "cannot_complete";
-    var ok = !!status && !!photoB64 && !busy && (!needNote || $("note").value.trim().length > 0);
+    var ok = !!status && !!photoB64 && !busy && (!needNote || $("note").value.trim().length > 0) && $("nm").value.trim().length >= 2 && coOk() && signed();
     $("send").disabled = !ok;
   }
 
@@ -218,16 +289,23 @@
     busy = true; setErr("");
     $("send").innerHTML = '<span class="spin"></span>Sending';
     refresh();
-    var body = {code: code, defectRef: ref, status: status, description: $("note").value.trim(), photoBase64: photoB64};
+    var sig = sigB64();
+    if (!sig || sig.length > MAX_SIG_B64) { setErr("The signature could not be prepared. Please clear it and sign again."); busy = false; $("send").textContent = "Send update"; refresh(); return; }
+    var body = {code: code, defectRef: ref, status: status, description: $("note").value.trim(), photoBase64: photoB64, company: coValue(), project: folder, name: $("nm").value.trim(), signatureBase64: sig};
     try {
       var ctl = new AbortController(), to = setTimeout(function(){ ctl.abort(); }, 60000);
       var r = await fetch(FLOW_URL, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body), signal: ctl.signal});
       clearTimeout(to);
       if (r.status === 200) {
-        $("form").classList.add("hide"); $("done").classList.remove("hide");
+        try {
+          localStorage.setItem("du:" + code, JSON.stringify({t: Date.now(), s: status, c: coValue()}));
+          localStorage.setItem("du:lastCompany", coValue());
+          addCompanies([coValue()]); localStorage.setItem("du:companies", JSON.stringify(coKnown));
+        } catch (e) {}
+        $("form").classList.add("hide"); $("prev").classList.add("hide"); $("done").classList.remove("hide"); $("backHelp").classList.add("hide");
         window.scrollTo(0, 0);
       } else if (r.status === 400) {
-        setErr("That update could not be accepted. Check that you chose a status and added a photo, then try again. If it keeps failing, contact the person who sent you the report.");
+        setErr("That update could not be accepted. Check that you chose a status, added a photo, entered your company and name, and signed, then try again. If it keeps failing, contact the person who sent you the report.");
       } else {
         setErr("The update could not be sent right now. Nothing has been lost on this page. Please wait a moment and press Send update again.");
       }
@@ -239,8 +317,47 @@
     refresh();
   });
 
+  $("back").onclick = function(){
+    try { if (window.history.length > 1) window.history.back(); } catch (e) {}
+    setTimeout(function(){ try { window.close(); } catch (e) {} $("backHelp").classList.remove("hide"); }, 700);
+  };
+
+  var LAB = {rectified: "Rectified", in_progress: "Works in progress", cannot_complete: "Cannot complete"};
+  function fmtWhen(t){ return new Date(t).toLocaleString("en-AU", {day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit"}); }
+  // Marker names look like <code>__<yyyyMMdd-HHmmss-xxxxxxxx>__<status>__<company>.txt (time is in UTC).
+  function parseMarker(n){
+    var base = String(n || "").replace(/\.txt$/i, ""), a = base.split("__");
+    if (a.length < 4 || a[0] !== code) return null;
+    var m = /^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})-[0-9a-f]{8}$/.exec(a[1]);
+    if (!m) return null;
+    return {id: a[1], t: Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]), s: a[2], c: a.slice(3).join("__")};
+  }
+  function showPrev(v){
+    var tx = document.createElement("b"); tx.textContent = "An update was already sent for this item.";
+    var rest = document.createTextNode((LAB[v.s] || "An update") + ", " + fmtWhen(v.t) + (v.c ? ", " + v.c : "") + ". You can send another if something has changed.");
+    var el = $("prev"); el.innerHTML = ""; el.appendChild(tx); el.appendChild(rest); el.classList.remove("hide");
+  }
+  var localPrev = null;
+  try { var lv = JSON.parse(localStorage.getItem("du:" + code) || "null"); if (lv && lv.t) { localPrev = lv; showPrev(lv); } } catch (e) {}
+  // Cross-device: ask the shared lookup which updates exist for this item and which companies have been used.
+  (async function(){
+    try {
+      var ctl = new AbortController(), to = setTimeout(function(){ ctl.abort(); }, 15000);
+      var r = await fetch(LOOKUP_URL, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({code: code}), signal: ctl.signal});
+      clearTimeout(to);
+      if (r.status !== 200) return;
+      var j = await r.json();
+      if (j && Array.isArray(j.c)) { addCompanies(j.c.map(function(x){ return x && x.n; })); try { localStorage.setItem("du:companies", JSON.stringify(coKnown)); } catch (e) {} }
+      if (j && Array.isArray(j.u) && $("done").classList.contains("hide")) {
+        var best = null;
+        j.u.forEach(function(x){ var m = parseMarker(x && x.n); if (m && (!best || m.id > best.id)) best = m; });
+        if (best && (!localPrev || best.t > localPrev.t + 120000)) showPrev(best);
+      }
+    } catch (e) {}
+  })();
+
   $("again").onclick = function(){
-    photoB64 = ""; status = "";
+    photoB64 = ""; status = ""; sigReset();
     $("note").value = ""; $("cnt").textContent = "0";
     Array.prototype.forEach.call(document.querySelectorAll('input[name=status]'), function(r){ r.checked = false; });
     Array.prototype.forEach.call(document.querySelectorAll(".opt"), function(o){ o.classList.remove("on"); });
