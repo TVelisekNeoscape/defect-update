@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex, nofollow">
+<title>Send photos to SharePoint</title>
+<style>
+  *{box-sizing:border-box}
+  [hidden]{display:none!important}
+  html,body{margin:0;min-height:100%;background:#15181b;color:#f2f4f5;font-family:Helvetica,Arial,sans-serif;font-size:14px;-webkit-text-size-adjust:100%}
+  main{max-width:520px;margin:0 auto;padding:28px 18px}
+  h1{margin:0 0 6px;font-size:18px}
+  p{line-height:1.5;margin:8px 0;color:#c9d1d6}
+  .bar{height:10px;background:#2a3036;border-radius:5px;overflow:hidden;margin:16px 0 8px}
+  .bar i{display:block;height:100%;width:0;background:#2f6db5;transition:width .2s}
+  #status{font-weight:700;color:#f2f4f5}
+  #log{font-size:12px;color:#a9b2b9;white-space:pre-wrap;margin-top:10px;max-height:160px;overflow:auto}
+  button{font:inherit;color:#fff;background:#2f6db5;border:0;border-radius:6px;padding:9px 14px;cursor:pointer;margin-top:12px}
+  button.sec{background:#3a4249}
+  .err{color:#ff9b8f}
+  .ok{color:#8fd19e}
+</style>
+</head>
+<body>
+<main>
+  <h1>Send photos to SharePoint</h1>
+  <p id="intro">Waiting for the defect register to send the photos. Keep this window open until it says the upload is finished.</p>
+  <div class="bar"><i id="fill"></i></div>
+  <div id="status">Waiting for the register…</div>
+  <div id="log"></div>
+  <button type="button" id="retry" hidden>Try the failed packs again</button>
+  <button type="button" class="sec" id="close" hidden>Close this window</button>
+</main>
+<script>
+(function(){
+  "use strict";
+  var UPLOAD_URL = "https://defaultf65a90545a5e48259d803f8339ac19.5b.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/16/workflows/8c42e6ae088a4af797323d65c7914e46/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=cSIz2kvy6H_jSc7lslMVg6z1lL-leZXMV6jdwfmmHuU";
+  var ORIGIN_OK = /^https:\/\/[0-9a-f-]{36}\.frame\.claudeusercontent\.com$|^https:\/\/claude\.ai$/;
+  var MAX_PACKS = 40, MAX_FILES = 20, MAX_B64 = 4000000;
+  var $ = function(id){ return document.getElementById(id); };
+  var src = null, srcOrigin = "", packs = [], doneIdx = {}, running = false, received = false;
+
+  function log(t, cls){ var d = $("log"); d.textContent += t + "\n"; d.scrollTop = d.scrollHeight; if (cls) $("status").className = cls; }
+  function status(t, cls){ var s = $("status"); s.textContent = t; s.className = cls || ""; }
+  function tell(msg){ try { if (src) src.postMessage(msg, srcOrigin); } catch (e) {} }
+  function counts(){ var n = 0, d = 0; packs.forEach(function(p, i){ n += p.files.length; if (doneIdx[i]) d += p.files.length; }); return {n:n, d:d}; }
+  function progress(){ var c = counts(); $("fill").style.width = (c.n ? Math.round(c.d * 100 / c.n) : 0) + "%"; tell({t:"neo-upload-progress", done:c.d, total:c.n}); return c; }
+
+  function valid(list){
+    if (!Array.isArray(list) || !list.length || list.length > MAX_PACKS) return false;
+    return list.every(function(p){
+      return p && Array.isArray(p.files) && p.files.length && p.files.length <= MAX_FILES && p.files.every(function(f){
+        return f && typeof f.id === "string" && /^[0-9a-f]{32}$/.test(f.id) && typeof f.data === "string" && f.data.length > 0 && f.data.length <= MAX_B64 && /^[A-Za-z0-9+\/]+={0,2}$/.test(f.data);
+      });
+    });
+  }
+
+  function sendOne(i, attempt){
+    var p = packs[i];
+    return fetch(UPLOAD_URL, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({files:p.files}), referrerPolicy:"no-referrer"}).then(function(r){
+      if (r.ok) return true;
+      throw new Error("HTTP " + r.status);
+    }).catch(function(e){
+      if (attempt < 3) return new Promise(function(res){ setTimeout(res, 1500 * attempt); }).then(function(){ return sendOne(i, attempt + 1); });
+      log("Pack " + (i + 1) + " failed: " + (e && e.message ? e.message : e), "err");
+      return false;
+    });
+  }
+
+  function run(){
+    if (running) return; running = true; $("retry").hidden = true;
+    var chain = Promise.resolve(), failed = 0;
+    packs.forEach(function(p, i){
+      if (doneIdx[i]) return;
+      chain = chain.then(function(){
+        status("Uploading pack " + (i + 1) + " of " + packs.length + "…");
+        return sendOne(i, 1).then(function(ok){ if (ok) { doneIdx[i] = true; log("Pack " + (i + 1) + " uploaded (" + p.files.length + " photos)"); } else failed++; progress(); });
+      });
+    });
+    chain.then(function(){
+      running = false; var c = progress();
+      if (!failed) {
+        status("Upload finished: " + c.d + " photo" + (c.d === 1 ? "" : "s") + " sent. The links open once SharePoint has saved them, usually within a minute.", "ok");
+        tell({t:"neo-upload-done", ok:true, sent:c.d});
+        $("close").hidden = false;
+        setTimeout(function(){ try { window.close(); } catch (e) {} }, 4000);
+      } else {
+        status(failed + " pack" + (failed === 1 ? "" : "s") + " did not upload. " + c.d + " of " + c.n + " photos were sent.", "err");
+        tell({t:"neo-upload-done", ok:false, sent:c.d, failed:failed});
+        $("retry").hidden = false; $("close").hidden = false;
+      }
+    });
+  }
+
+  window.addEventListener("message", function(e){
+    if (!ORIGIN_OK.test(e.origin)) return;
+    var m = e.data;
+    if (!m || m.t !== "neo-packs" || received) return;
+    if (!valid(m.packs)) { status("The register sent something this page does not accept. Nothing was uploaded.", "err"); e.source.postMessage({t:"neo-upload-done", ok:false, sent:0, failed:0, reason:"invalid"}, e.origin); return; }
+    received = true; src = e.source; srcOrigin = e.origin; packs = m.packs;
+    var c = counts();
+    log("Received " + c.n + " photo" + (c.n === 1 ? "" : "s") + " in " + packs.length + " pack" + (packs.length === 1 ? "" : "s"));
+    run();
+  });
+
+  $("retry").addEventListener("click", run);
+  $("close").addEventListener("click", function(){ try { window.close(); } catch (e) {} });
+
+  /* Tell the register this page is ready, until the packs arrive. */
+  if (window.opener) {
+    var tries = 0, t = setInterval(function(){
+      if (received || ++tries > 120) { clearInterval(t); return; }
+      try { window.opener.postMessage({t:"neo-upload-ready"}, "*"); } catch (e) {}
+    }, 500);
+  } else {
+    status("Open this page from the defect register. It cannot be used on its own.", "err");
+    $("intro").hidden = true;
+  }
+})();
+</script>
+</body>
+</html>
