@@ -80,13 +80,17 @@
   $("fit").addEventListener("click", fit);
   window.addEventListener("resize", function(){ if (!img.hidden) { var wasFit = Math.abs(scale - minS) < 1e-6; var old = minS; minS = Math.min(stage.clientWidth / nw, stage.clientHeight / nh); if (wasFit) scale = minS; else scale = Math.max(minS, scale); clamp(); apply(); } });
 
-  var url = new URL("p/" + id + ".bin", location.href).href;
-  fetch(url, {cache:"no-cache", referrerPolicy:"no-referrer"}).then(function(r){
-    if (r.status === 404) throw new Error("missing");
+  var FETCH_URL = "https://defaultf65a90545a5e48259d803f8339ac19.5b.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/01/workflows/56e0044257ad451eb094fa1fa7b712a5/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=ZO09PbEmU8hNWP_NlQTiMK1xHcKFBZItE7c7m6Ty2EU";
+  var ctl = window.AbortController ? new AbortController() : null, tm = setTimeout(function(){ if (ctl) ctl.abort(); }, 90000);
+  function b64ToBytes(s){ var b = atob(s), o = new Uint8Array(b.length); for (var i = 0; i < b.length; i++) o[i] = b.charCodeAt(i); return o; }
+  fetch(FETCH_URL, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({id:id}), referrerPolicy:"no-referrer", signal:ctl ? ctl.signal : undefined}).then(function(r){
+    clearTimeout(tm);
+    if (r.status === 404 || r.status >= 500) throw new Error("missing");
     if (!r.ok) throw new Error("http");
-    return r.arrayBuffer();
-  }).then(function(buf){
-    var u8 = new Uint8Array(buf); if (u8.length < 29) throw new Error("bad");
+    return r.json();
+  }).then(function(j){
+    if (!j || typeof j.data !== "string") throw new Error("missing");
+    var u8 = b64ToBytes(j.data); if (u8.length < 29) throw new Error("bad");
     return crypto.subtle.importKey("raw", b64uToBytes(key), "AES-GCM", false, ["decrypt"]).then(function(k){
       return crypto.subtle.decrypt({name:"AES-GCM", iv:u8.slice(0, 12)}, k, u8.slice(12));
     });
@@ -101,7 +105,7 @@
     img.onerror = function(){ say("The photo could not be displayed."); };
     img.src = obj;
   }).catch(function(e){
-    if (e && e.message === "missing") say("This photo has not been uploaded to the site yet. Try again in a minute or two. GitHub can take a short while to publish new files.");
+    if (e && e.message === "missing") say("This photo is not available yet. If the report was made in the last few minutes, the photo may still be unpacking. Try again shortly.");
     else if (e && e.name === "OperationError") say("This link does not match the stored photo. Open it again from the latest report.");
     else say("The photo could not be opened. Check your connection and try again.");
   });
